@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "certstream-server-go.fullname" . }}
+  labels:
+    {{- include "certstream-server-go.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "certstream-server-go.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "certstream-server-go.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "certstream-server-go.serviceAccountName" . }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "-config"
+            - "/etc/certstream-server-go/config.yaml"
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.webserver.listen_port }}
+              protocol: TCP
+            - name: prometheus
+              containerPort: {{ .Values.config.prometheus.listen_port }}
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/certstream-server-go
+            {{- if .Values.tls.secretName }}
+            - name: tls
+              mountPath: /etc/certstream-server-go/tls
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "certstream-server-go.fullname" . }}
+        {{- if .Values.tls.secretName }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.tls.secretName }}
+        {{- end }}

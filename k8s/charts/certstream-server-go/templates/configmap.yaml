@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "certstream-server-go.fullname" . }}
+  labels:
+    {{- include "certstream-server-go.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- $config := deepCopy .Values.config -}}
+    {{- if .Values.tls.secretName -}}
+    {{- $_ := set $config.webserver "cert_path" "/etc/certstream-server-go/tls/tls.crt" -}}
+    {{- $_ := set $config.webserver "cert_key_path" "/etc/certstream-server-go/tls/tls.key" -}}
+    {{- end -}}
+    {{- toYaml $config | nindent 4 }}

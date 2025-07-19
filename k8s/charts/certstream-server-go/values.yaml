@@ -1,0 +1,53 @@
+replicaCount: 1
+
+image:
+  repository: dockx123/certstream-server-go
+  pullPolicy: IfNotPresent
+  tag: 0.1.0
+
+serviceAccount:
+  create: true
+  name: "certstream"
+
+service:
+  type: ClusterIP
+
+tls:
+  # The name of a pre-existing secret that contains the TLS certificate and key.
+  # If specified, the secret will be mounted into the container and the application
+  # will be configured to use the certificate and key.
+  # The secret must contain keys named 'tls.crt' and 'tls.key'.
+  secretName: ""
+
+config:
+  webserver:
+    listen_addr: "0.0.0.0"
+    listen_port: 8080
+    full_url: "/full-stream"
+    lite_url: "/"
+    domains_only_url: "/domains-only"
+    cert_path: ""
+    cert_key_path: ""
+    compression_enabled: false
+  prometheus:
+    enabled: true
+    listen_addr: "0.0.0.0"
+    listen_port: 9090
+    metrics_url: "/metrics"
+    expose_system_metrics: true
+    real_ip: false
+    whitelist:
+      - "0.0.0.0/0"
+  general:
+    additional_logs:
+      - url: https://ct.googleapis.com/logs/us1/mirrors/digicert_nessie2022
+        operator: "DigiCert"
+        description: "DigiCert Nessie2022 log"
+      - url: https://dodo.ct.comodo.com
+        operator: "Comodo"
+        description: "Comodo Dodo"
+    buffer_sizes:
+      websocket: 300
+      ctlog: 1000
+      broadcastmanager: 10000
+    drop_old_logs: true
