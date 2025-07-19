@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+
+# Enable verbose output for debugging
+set -x
+
+# Default values for architectures
+DEFAULT_ARCHITECTURES=("linux/amd64" "linux/arm64")
+ARCHITECTURES=()
+
+# Initialize variables for repository and version
+REPOSITORY=""
+VERSION=""
+
+# Function to display usage information
+usage() {
+  echo "Usage: $0 --repository <repo_name> --version <tag_version> [--architectures <arch1> <arch2> ...]"
+  echo ""
+  echo "Arguments:"
+  echo "  --repository <repo_name>  : (Required) The name of the Podman repository (e.g., reponame/certstream-server-go)."
+  echo "  --version <tag_version>   : (Required) The version tag for the images and manifest (e.g., 0.1.0)."
+  echo "  --architectures <arch1> ... : (Optional) Space-separated list of architectures (e.g., linux/arm64 linux/amd64)."
+  echo "                              Defaults to '${DEFAULT_ARCHITECTURES[@]}' if not provided."
+  exit 1
+}
+
+# Parse command-line arguments
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --repository)
+      REPOSITORY="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    --version)
+      VERSION="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    --architectures)
+      shift # past argument
+      # Collect all subsequent arguments until another flag or end of arguments
+      while [[ "$#" -gt 0 && ! "$1" =~ ^-- ]]; do
+        ARCHITECTURES+=("$1")
+        shift
+      done
+      ;;
+    *)
+      echo "Unknown parameter: $1"
+      usage
+      ;;
+  esac
+done
+
+# Validate required arguments
+if [[ -z "$REPOSITORY" ]]; then
+  echo "Error: Repository name is required."
+  usage
+fi
+
+if [[ -z "$VERSION" ]]; then
+  echo "Error: Version tag is required."
+  usage
+fi
+
+# If no architectures were provided via arguments, use the default ones
+if [[ ${#ARCHITECTURES[@]} -eq 0 ]]; then
+  ARCHITECTURES=("${DEFAULT_ARCHITECTURES[@]}")
+  echo "No specific architectures provided. Using default architectures: ${ARCHITECTURES[@]}"
+else
+  echo "Using specified architectures: ${ARCHITECTURES[@]}"
+fi
+
+echo "--- Starting Podman Build and Manifest Process ---"
+echo "Repository: $REPOSITORY"
+echo "Version: $VERSION"
+echo "Architectures: ${ARCHITECTURES[@]}"
+
+# Array to hold the full image names for manifest creation
+declare -a BUILT_IMAGES
+
+# Step 1: Build images for each specified architecture
+for ARCH in "${ARCHITECTURES[@]}"; do
+  # Extract the last part of the architecture string (e.g., arm64 from linux/arm64)
+  ARCH_TAG=$(echo "$ARCH" | awk -F'/' '{print $NF}')
+  FULL_IMAGE_NAME="${REPOSITORY}:${ARCH_TAG}-${VERSION}"
+
+  echo "Building image: ${FULL_IMAGE_NAME} for platform: ${ARCH}"
+  podman build -t "${FULL_IMAGE_NAME}" --platform "${ARCH}" .
+
+  # Check if the build was successful
+  if [ $? -ne 0 ]; then
+    echo "Error: Podman build failed for ${FULL_IMAGE_NAME}. Exiting."
+    exit 1
+  fi
+  BUILT_IMAGES+=("${FULL_IMAGE_NAME}")
+done
+
+# Step 2: Create the manifest list
+MANIFEST_LIST_NAME="${REPOSITORY}:${VERSION}"
+echo "Creating Podman manifest list: ${MANIFEST_LIST_NAME}"
+podman manifest create "${MANIFEST_LIST_NAME}"
+
+# Check if manifest creation was successful
+if [ $? -ne 0 ]; then
+  echo "Error: Podman manifest create failed. Exiting."
+  exit 1
+fi
+
+# Step 3: Add built images to the manifest list
+for IMAGE in "${BUILT_IMAGES[@]}"; do
+  echo "Adding image ${IMAGE} to manifest list ${MANIFEST_LIST_NAME}"
+  podman manifest add "${MANIFEST_LIST_NAME}" "${IMAGE}"
+
+  # Check if adding to manifest was successful
+  if [ $? -ne 0 ]; then
+    echo "Error: Podman manifest add failed for ${IMAGE}. Exiting."
+    exit 1
+  fi
+done
+
+# Step 4: Push the manifest list
+echo "Pushing Podman manifest list: ${MANIFEST_LIST_NAME} with all architectures"
+podman manifest push --all "${MANIFEST_LIST_NAME}"
+
+# Check if push was successful
+if [ $? -ne 0 ]; then
+  echo "Error: Podman manifest push failed. Exiting."
+  exit 1
+fi
+
+echo "--- Podman Build and Manifest Process Completed Successfully! ---"
+
